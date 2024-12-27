@@ -1,30 +1,19 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  Image,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Animated,
-  Modal,
   TextInput,
+  Button, // Pastikan Button diimpor di sini
+  FlatList,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
-import axios from 'axios';
-
-interface User {
-  id: { value: string };
-  name: { first: string; last: string };
-  email: string;
-  picture: { medium: string };
-  phone: string;
-  gender: string;
-  location: { city: string; country: string };
-  dob: { age: number };
-}
+import db from './src/database/database';
 
 const App = () => {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [newUser, setNewUser] = useState({
     firstName: '',
@@ -34,110 +23,104 @@ const App = () => {
     gender: '',
   });
 
-  const fadeAnim = useRef(new Animated.Value(0)).current; // For fade-in animation
-  const scaleAnim = useRef(new Animated.Value(1)).current; // For bounce animation
-
-  const fetchUsers = async () => {
-    try {
-      const response = await axios.get('https://randomuser.me/api/?results=5');
-      setUsers(response.data.results);
-      startFadeAnimation();
-    } catch (error) {
-      console.log(error);
-    }
+  const fetchUsersFromDB = () => {
+    db.transaction((tx) => {
+      tx.executeSql(
+        `SELECT * FROM Users`,
+        [],
+        (tx, results) => {
+          const rows = results.rows;
+          let usersData = [];
+          for (let i = 0; i < rows.length; i++) {
+            usersData.push(rows.item(i));
+          }
+          setUsers(usersData);
+        },
+        (error) => {
+          console.log('Error fetching data: ', error);
+        }
+      );
+    });
   };
 
   const handleAddUser = () => {
+    const age = parseInt(newUser.age, 10);
     if (
       newUser.firstName &&
       newUser.lastName &&
       newUser.email &&
-      newUser.age &&
+      !isNaN(age) &&
       newUser.gender
     ) {
-      const newUserObject: User = {
-        id: { value: `id${Date.now()}` },
-        name: { first: newUser.firstName, last: newUser.lastName },
-        email: newUser.email,
-        picture: { medium: 'https://randomuser.me/api/portraits/lego/1.jpg' },
-        phone: '123-456-7890',
-        gender: newUser.gender,
-        location: { city: 'Unknown', country: 'Unknown' },
-        dob: { age: parseInt(newUser.age, 10) },
-      };
-      setUsers([...users, newUserObject]);
-      setIsModalVisible(false);
-      setNewUser({
-        firstName: '',
-        lastName: '',
-        email: '',
-        age: '',
-        gender: '',
+      db.transaction((tx) => {
+        tx.executeSql(
+          `INSERT INTO Users (firstName, lastName, email, age, gender) VALUES (?, ?, ?, ?, ?)`,
+          [newUser.firstName, newUser.lastName, newUser.email, age, newUser.gender],
+          (tx, results) => {
+            if (results.rowsAffected > 0) {
+              Alert.alert('Berhasil!', 'User berhasil ditambahkan!');
+              fetchUsersFromDB();
+              setIsModalVisible(false);
+              setNewUser({
+                firstName: '',
+                lastName: '',
+                email: '',
+                age: '',
+                gender: '',
+              });
+            }
+          },
+          (error) => {
+            console.log('Error inserting data: ', error);
+          }
+        );
       });
-      startFadeAnimation();
     } else {
-      alert('Semua field harus diisi!');
+      Alert.alert('Gagal!', 'Semua field harus diisi dengan benar!');
     }
   };
 
-  const startFadeAnimation = () => {
-    fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1.2, // Membesarkan tombol
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1, // Kembali ke ukuran normal
-      friction: 3, // Efek bounce
-      tension: 100, // Kecepatan bounce
-      useNativeDriver: true,
-    }).start();
-  };
-
   useEffect(() => {
-    fetchUsers();
+    db.transaction((tx) => {
+      tx.executeSql(
+        `CREATE TABLE IF NOT EXISTS Users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          firstName TEXT,
+          lastName TEXT,
+          email TEXT,
+          age INTEGER,
+          gender TEXT
+        )`
+      );
+    });
+    fetchUsersFromDB();
   }, []);
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.header}>API dari Random User</Text>
-      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setIsModalVisible(true)}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-        >
-          <Text style={styles.addButtonText}>Tambah User</Text>
-        </TouchableOpacity>
-      </Animated.View>
-      {users.map((user, index) => (
-        <Animated.View
-          key={index}
-          style={[styles.card, { opacity: fadeAnim }]}
-        >
-          <Image source={{ uri: user.picture.medium }} style={styles.image} />
-          <View style={styles.info}>
-            <Text style={styles.name}>
-              {user.name.first} {user.name.last}
+    <View style={styles.container}>
+      <Text style={styles.title}>Daftar Pengguna</Text>
+      <FlatList
+        data={users}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
+          <View style={styles.userCard}>
+            <Text style={styles.userText}>
+              {item.firstName} {item.lastName}
             </Text>
-            <Text style={styles.gender}>Gender: {user.gender}</Text>
-            <Text style={styles.dob}>Age: {user.dob.age}</Text>
+            <Text style={styles.userText}>Email: {item.email}</Text>
+            <Text style={styles.userText}>Usia: {item.age}</Text>
+            <Text style={styles.userText}>Gender: {item.gender}</Text>
           </View>
-        </Animated.View>
-      ))}
+        )}
+      />
+      <TouchableOpacity
+        style={styles.addButton}
+        onPress={() => setIsModalVisible(true)}
+      >
+        <Text style={styles.addButtonText}>Tambah Pengguna</Text>
+      </TouchableOpacity>
 
+      {/* Modal untuk menambahkan user */}
       <Modal
         visible={isModalVisible}
         transparent={true}
@@ -146,13 +129,13 @@ const App = () => {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalHeader}>Tambah Data User</Text>
+            <Text style={styles.modalTitle}>Tambah Pengguna</Text>
             <TextInput
               style={styles.input}
               placeholder="Nama Depan"
               value={newUser.firstName}
               onChangeText={(text) =>
-                setNewUser((prev) => ({ ...prev, firstName: text }))
+                setNewUser({ ...newUser, firstName: text })
               }
             />
             <TextInput
@@ -160,127 +143,100 @@ const App = () => {
               placeholder="Nama Belakang"
               value={newUser.lastName}
               onChangeText={(text) =>
-                setNewUser((prev) => ({ ...prev, lastName: text }))
+                setNewUser({ ...newUser, lastName: text })
               }
             />
             <TextInput
               style={styles.input}
               placeholder="Email"
-              keyboardType="email-address"
               value={newUser.email}
               onChangeText={(text) =>
-                setNewUser((prev) => ({ ...prev, email: text }))
+                setNewUser({ ...newUser, email: text })
               }
             />
             <TextInput
               style={styles.input}
-              placeholder="Umur"
+              placeholder="Usia"
               keyboardType="numeric"
               value={newUser.age}
               onChangeText={(text) =>
-                setNewUser((prev) => ({ ...prev, age: text }))
+                setNewUser({ ...newUser, age: text })
               }
             />
             <TextInput
               style={styles.input}
-              placeholder="Jenis Kelamin"
+              placeholder="Jenis Kelamin (L/P)"
               value={newUser.gender}
               onChangeText={(text) =>
-                setNewUser((prev) => ({ ...prev, gender: text }))
+                setNewUser({ ...newUser, gender: text })
               }
             />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleAddUser}
-              >
-                <Text style={styles.buttonText}>Simpan</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setIsModalVisible(false)}
-              >
-                <Text style={styles.buttonText}>Batal</Text>
-              </TouchableOpacity>
-            </View>
+            <Button title="Tambah" onPress={handleAddUser} />
+            <Button
+              title="Batal"
+              onPress={() => setIsModalVisible(false)}
+              color="red"
+            />
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
-export default App;
-
 const styles = StyleSheet.create({
   container: {
-    padding: 10,
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#f8f9fa',
   },
-  header: {
-    fontSize: 20,
+  title: {
+    fontSize: 24,
     fontWeight: 'bold',
+    marginBottom: 10,
     textAlign: 'center',
-    marginVertical: 10,
+  },
+  userCard: {
+    padding: 15,
+    backgroundColor: '#ffffff',
+    borderRadius: 5,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  userText: {
+    fontSize: 16,
   },
   addButton: {
-    backgroundColor: 'green',
-    padding: 10,
+    backgroundColor: '#007bff',
+    padding: 15,
     borderRadius: 5,
-    marginBottom: 20,
     alignItems: 'center',
+    marginTop: 20,
   },
   addButtonText: {
-    color: 'white',
+    color: '#ffffff',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  card: {
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  image: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    alignSelf: 'center',
-  },
-  info: {
-    marginTop: 10,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  gender: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-  },
-  dob: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
   },
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
     padding: 20,
     borderRadius: 10,
-    width: '90%',
+    margin: 20,
   },
-  modalHeader: {
+  modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 10,
-    textAlign: 'center',
   },
   input: {
     borderWidth: 1,
@@ -289,22 +245,6 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
   },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  saveButton: {
-    backgroundColor: 'green',
-    padding: 10,
-    borderRadius: 5,
-  },
-  cancelButton: {
-    backgroundColor: 'red',
-    padding: 10,
-    borderRadius: 5,
-  },
-  buttonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
 });
+
+export default App;
